@@ -1,0 +1,91 @@
+//interrupt routine 11
+//wait(13),signal(14),getpid(11),getppid(12)
+
+//first extract system call number from user stack(userSP-5);
+
+alias sysno R1;
+alias usersp R2;
+alias syscalladd R3;
+alias curpid R4;
+
+
+usersp=SP;
+curpid=[SYSTEM_STATUS_TABLE+1];
+syscalladd=[PTBR+2*(usersp-5)/512]*512+(usersp-5)%512;
+sysno=[syscalladd];
+
+//change to kernal stack
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+if(sysno==13) then
+	//arg is pid at (usersp-4)
+	alias waitforpid R5;
+	alias address R6;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=13;
+	address=[PTBR+2*(usersp-4)/512]*512+(usersp-4)%512;
+	waitforpid=[address];
+	
+	//process should not wait for itself or a terminated procvess and waitpid range should be valid;
+	if(waitforpid==curpid || [PROCESS_TABLE+waitforpid*16+4]==TERMINATED || !(waitforpid>=0 && waitforpid <=15) ) then
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-1;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;
+	endif;
+	//else
+	[PROCESS_TABLE+curpid*16+4]=WAIT_PROCESS;
+	[PROCESS_TABLE+curpid*16+5]=waitforpid;
+	backup;
+	call MOD_5;
+	restore;
+
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=0;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+if(sysno==14) then 		//signal system call
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=14;
+	alias counter R5;
+	alias address R6;
+	counter=0;
+	while(counter<=15) do
+		if( [PROCESS_TABLE+counter*16+4]==WAIT_PROCESS && [PROCESS_TABLE+counter*16+5]==curpid) then
+			[PROCESS_TABLE+counter*16+4]=READY;
+		endif;
+		counter=counter+1;
+	endwhile;
+
+	//[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=0;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+if(sysno==11) then 		//getpid
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=11;
+	alias address R5;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=curpid;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+
+if(sysno==12) then 		//getppid
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=12;
+	alias address R5;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=[PROCESS_TABLE+16*curpid+2];
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+

@@ -1,0 +1,134 @@
+//memory manager module
+
+alias funcno R1;
+alias pageno R2;
+alias count R5;
+
+
+if (funcno == 1) then	//if function number corresponds to get free page function
+
+	[SYSTEM_STATUS_TABLE + 3] = [SYSTEM_STATUS_TABLE + 3] + 1;	//increment wait_mem_count
+	
+	while ([SYSTEM_STATUS_TABLE + 2] == 0) do 	//while memory if full(mem free count is 0)
+		[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 4] = WAIT_MEM;	//set state as wait_mem
+
+		//invoking schedular
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+
+	[SYSTEM_STATUS_TABLE + 3] = [SYSTEM_STATUS_TABLE + 3] - 1;	//decrement wait_mem_count
+	[SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] - 1;	//decrement mem_free_count
+
+	count = 0;
+	while (count < 128) do 	//finding a free page
+		if ([MEMORY_FREE_LIST + count] == 0) then
+			[MEMORY_FREE_LIST + count] = 1;
+			R0 = count;
+			return;
+		endif;
+		count = count + 1;
+	endwhile;
+	return;
+endif;
+
+if (funcno == 2) then	//if function number corresponds to get release page function
+
+	[MEMORY_FREE_LIST + pageno]  = [MEMORY_FREE_LIST + pageno] - 1;	//decrement entry in mem free list
+	
+	if ([MEMORY_FREE_LIST + pageno] == 0) then	//if the page becomes free
+		[SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] + 1;	//increment mem_free_count
+	endif;
+
+	return;
+endif;
+
+
+if(funcno==3) then	//get free block
+	alias counter R3;
+	counter=DISK_FREE_AREA;
+	while(counter < DISK_SWAP_AREA) do
+		if([DISK_FREE_LIST+counter]==0) then
+			[DISK_FREE_LIST+counter]=1;
+			break;
+		endif;
+		counter=counter+1;
+	endwhile;
+	if(counter==DISK_SWAP_AREA) then
+		R0=-1;
+		return;
+	endif;
+
+	R0=counter;
+	return;
+endif;
+
+
+if (funcno == 4) then	//release block function is called
+	//decrement disk free list value of corresponding block
+	[DISK_FREE_LIST + R2] = [DISK_FREE_LIST + R2] - 1;
+	return;
+endif;
+
+if (funcno == 5) then	//if get code page function is called
+	alias currpid R2;
+	alias blockno R3;
+	alias count R4;
+	alias diskmap R5;
+
+	count = 0;
+	while (count < 16) do //check disk map table of all processes for corresponding block no
+		diskmap = DISK_MAP_TABLE + 10*count;
+		//if present and page table entry is valid, return corresponding page number
+		if ([diskmap + 4] == blockno) then
+			backup;
+		//print "present";
+		restore;
+			if ([PAGE_TABLE_BASE + 20*count + 8] != -1) then
+				R0 = [PAGE_TABLE_BASE + 20*count + 8];
+				[MEMORY_FREE_LIST + R0] = [MEMORY_FREE_LIST + R0] + 1;
+				return;
+			endif;
+		endif;
+
+		if ([diskmap + 5] == blockno) then
+			if ([PAGE_TABLE_BASE + 20*count + 10] != -1) then
+				R0 = [PAGE_TABLE_BASE + 20*count + 10];
+				[MEMORY_FREE_LIST + R0] = [MEMORY_FREE_LIST + R0] + 1;
+				return;
+			endif;
+		endif;
+
+		if ([diskmap + 6] == blockno) then
+			if ([PAGE_TABLE_BASE + 20*count + 12] != -1) then
+				R0 = [PAGE_TABLE_BASE + 20*count + 12];
+				[MEMORY_FREE_LIST + R0] = [MEMORY_FREE_LIST + R0] + 1;
+				return;
+			endif;
+		endif;
+
+		if ([diskmap + 7] == blockno) then
+			if ([PAGE_TABLE_BASE + 20*count + 14] != -1) then
+				R0 = [PAGE_TABLE_BASE + 20*count + 14];
+				[MEMORY_FREE_LIST + R0] = [MEMORY_FREE_LIST + R0] + 1;
+				return;
+			endif;
+		endif;
+		count = count + 1;
+	endwhile;
+	R1 = 1;
+	call MOD_2;
+
+	R1 = 2;
+	R2 = currpid;
+	R4 = blockno;
+	R3 = R0;	
+
+	call MOD_4;
+	return;
+endif;
+
+
+
+

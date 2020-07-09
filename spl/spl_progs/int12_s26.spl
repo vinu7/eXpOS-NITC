@@ -1,0 +1,53 @@
+//logout(28) system call
+
+
+alias usersp R1;
+alias pte R2;
+
+usersp=SP;
+pte=PROCESS_TABLE+16*[SYSTEM_STATUS_TABLE+1];
+
+//kernel mode
+[pte+13]=SP;
+SP=[pte+11]*512-1;
+[pte+9]=28;//mode flag
+
+alias currpid R5;
+alias retadd R6;
+
+retadd = [PTBR + 2*(usersp - 1)/512]*512 + (usersp-1)%512;
+currpid=[SYSTEM_STATUS_TABLE+1];
+
+if(currpid!=2) then	//not shell
+	[retadd]=-1;
+	SP=[pte+13];
+	[pte+9]=0;
+	ireturn;
+endif;
+
+//call kill_all() of MOD_1
+
+backup;
+R1=5;
+R2=currpid;
+call MOD_1;
+restore;
+
+[pte+4]=TERMINATED;
+
+//store IP value in stack
+[[PTBR+2*8]*512]=[[PTBR+2*4]*512+1];
+[pte+13]=4096;//usersp field
+
+
+//wakeup login process
+[PROCESS_TABLE+16*1+4]=READY;
+[SYSTEM_STATUS_TABLE+0]=0;	//current_user_id
+
+backup;
+call MOD_5;
+restore;
+
+
+
+

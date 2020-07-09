@@ -1,0 +1,11 @@
+alias num R0;
+num = 1;
+while(num <= 20) do
+	if(num%2 == 0) then
+		num=num+1;
+		continue;
+	else
+		print num;
+	endif;
+	num = num + 1;
+endwhile;

@@ -1,0 +1,112 @@
+//interrupt 14
+//semlock(19) --to lock semaphore
+//semunlock(20) --unlocking semaphore
+
+//first extract system call number from user stack(userSP-5);
+
+alias sysno R1;
+alias usersp R2;
+alias syscalladd R3;
+alias curpid R4;
+
+
+usersp=SP;
+curpid=[SYSTEM_STATUS_TABLE+1];
+syscalladd=[PTBR+2*(usersp-5)/512]*512+(usersp-5)%512;
+sysno=[syscalladd];
+
+//change to kernal stack
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+
+if(sysno==19) then 		//semlock
+	//arg is SEMID
+	alias semid R5;
+	alias address R6;
+	address=[PTBR+2*(usersp-4)/512]*512+(usersp-4)%512;
+	semid=[address];
+
+	[PROCESS_TABLE+16*curpid +9]=19;
+
+	if( (!(semid>=0 && semid<=7)) || [[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2))]!=1  ) then
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-1;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;
+	endif;
+
+	alias semindex R7;
+	semindex=[[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2)+1)];
+	while([SEMAPHORE_TABLE+semindex*4+0]!=-1 &&[SEMAPHORE_TABLE+semindex*4+0]!=curpid ) do
+		[PROCESS_TABLE+16*curpid +4]=WAIT_SEMAPHORE;
+		[PROCESS_TABLE+16*curpid +5]=semindex;
+		
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+	
+	//locking pid
+	[SEMAPHORE_TABLE+semindex*4+0]=curpid;
+	
+	[PROCESS_TABLE+16*curpid+9]=0;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+if(sysno==20) then 		//semUnlock system call
+	alias semid R5;
+	alias address R6;
+	address=[PTBR+2*(usersp-4)/512]*512+(usersp-4)%512;
+	semid=[address];
+
+	[PROCESS_TABLE+16*curpid +9]=20;
+
+	if( (!(semid>=0 && semid<=7)) || [[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2))]!=1  ) then
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-1;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;
+	endif;
+	
+	alias semindex R7;
+	semindex=[[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2)+1)];
+
+	if([SEMAPHORE_TABLE+4*semindex]!=-1) then
+		if([SEMAPHORE_TABLE+4*semindex]!=curpid) then			
+			address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+			[address]=-2;
+			[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+			SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+			ireturn;
+		endif;
+		
+		[SEMAPHORE_TABLE+4*semindex]=-1;//unlock the semaphore
+		
+		alias counter R8;
+		counter=0;
+		while(counter<16) do
+			if([PROCESS_TABLE+16*counter+4]==WAIT_SEMAPHORE && [PROCESS_TABLE+16*counter+5]==semindex) then
+				[PROCESS_TABLE+16*counter+4]=READY;
+			endif;
+
+			counter=counter+1;
+		endwhile;
+	endif;
+
+	[PROCESS_TABLE+16*curpid+9]=0;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+
+endif;
+
+
+
+

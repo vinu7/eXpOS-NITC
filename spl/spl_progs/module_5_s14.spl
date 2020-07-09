@@ -1,0 +1,53 @@
+//print "hii mod5";
+//print [SYSTEM_STATUS_TABLE+1];
+alias currentPID R0;
+currentPID=[SYSTEM_STATUS_TABLE +1];
+
+multipush(BP);
+
+alias process_table_entry R1;
+process_table_entry=PROCESS_TABLE+currentPID*16;
+
+[process_table_entry+12]=SP % 512;
+[process_table_entry+14]=PTBR;
+[process_table_entry+15]=PTLR;
+
+//[process_table_entry+4]="READY";
+
+alias counter R2;
+counter=(currentPID+1)%16;
+while(counter!=currentPID) do
+if(counter!=0) then
+	if([PROCESS_TABLE +(counter*16)+4]==CREATED || [PROCESS_TABLE +(counter*16)+4]==READY) then
+		//print "header";
+		break;
+	endif;
+endif;
+	counter=(counter+1)%16;
+endwhile;
+
+alias newPID R3;
+newPID=counter;
+
+if((counter % 16)==currentPID) then
+	newPID=0;
+endif;
+
+SP= [PROCESS_TABLE +(newPID*16)+11]*512 +[PROCESS_TABLE +(newPID*16)+12];//sp=(user area pg num)*512+kptr;
+PTBR=[PROCESS_TABLE +(newPID*16)+14];
+PTLR=[PROCESS_TABLE +(newPID*16)+15];
+[SYSTEM_STATUS_TABLE +1]=newPID;
+
+if([PROCESS_TABLE +(newPID*16)+4]==CREATED) then
+	BP=[[PROCESS_TABLE+(newPID*16)+11]*512];
+	SP=[PROCESS_TABLE +(newPID*16)+13];
+	[PROCESS_TABLE +(newPID*16)+4]=RUNNING;
+	[PROCESS_TABLE +(newPID*16)+9]=0;
+	ireturn;
+endif;
+
+[PROCESS_TABLE +(newPID*16)+4]=RUNNING;
+multipop(BP);
+
+return;
+

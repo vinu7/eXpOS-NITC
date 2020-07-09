@@ -1,0 +1,25 @@
+//switch to kernel stack
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13] = SP;
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11]*512 - 1;
+
+backup;	//save context
+
+
+
+[DISK_STATUS_TABLE] = 0;	//set disk status as free(0)
+
+alias temppid R0;
+temppid = 1;
+
+while (temppid < 16) do 	//update status of all processes waiting for disk to ready 	
+	if ([PROCESS_TABLE + 16*temppid + 4] == WAIT_DISK) then
+		[PROCESS_TABLE + 16*temppid + 4] = READY;
+	endif;
+	temppid = temppid + 1;
+endwhile;
+
+restore;	//restore context
+
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13];
+//return to user mode
+ireturn;	

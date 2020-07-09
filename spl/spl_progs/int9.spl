@@ -1,0 +1,151 @@
+alias usersp R0;
+alias retadd R1;
+alias filename R2;
+alias inodeindex R3;
+alias count R4;
+alias currpid R5;
+alias userpageno R6;
+alias temp R7;
+
+currpid = [SYSTEM_STATUS_TABLE + 1];
+usersp = SP;
+
+//switch to kernel stack
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13] = SP;
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11]*512 - 1;
+
+//set mode flag of current process to 9(exec system call)
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 9] = 9;
+
+//finding the return address
+retadd = (([PTBR + 2*(usersp - 1)/512])*512) + ((usersp-1)%512);
+
+//getting file name argument
+filename = [PTBR + 2*(usersp - 4)/512]*512 + (usersp - 4)%512;
+
+
+count = 0;
+
+//check if file is valid or not
+while (count < MAX_FILE_NUM) do
+	if ([INODE_TABLE + 16*count + 1] == [filename]) then
+		inodeindex = count;
+		break;
+	endif;
+	count = count + 1;
+endwhile;
+
+
+
+//if such file does not exist, reset mode flag, switch to user stack and return -1
+if (count == MAX_FILE_NUM) then
+	[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 9] = 0;
+	SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13];
+	[retadd] = -1;
+	ireturn;
+endif;
+
+
+backup;	//saving context
+R1 = 3;
+R2 = currpid;	
+call MOD_1;	//calling process manager module for exit function
+restore;	//restoring context
+
+
+//reclaiming the user area page number
+userpageno = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11];
+[MEMORY_FREE_LIST + userpageno] = [MEMORY_FREE_LIST + userpageno] + 1;
+[SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] - 1;
+
+//Setting up per-process resource table in last 16 words of user area page
+count=496;
+while(count<=511) do
+	[userpageno*512+count]=-1;
+	count=count+2;
+endwhile;
+//Initially per process resource table is empty
+
+//set SP to start of user area page of new process
+SP = userpageno*512 - 1;
+
+
+//set new process as running and store the inode index
+[PROCESS_TABLE + 16*currpid + 4] = RUNNING;
+[PROCESS_TABLE + 16*currpid + 7] = inodeindex;
+
+//setting library page table entries in page table;
+PTBR = PAGE_TABLE_BASE + 20*currpid;
+
+[PTBR + 0] = 63;
+[PTBR + 1] = "0100";
+[PTBR + 2] = 64;
+[PTBR + 3] = "0100";
+
+//invalidate page table entries for heap pages
+[PTBR + 4] = -1;
+[PTBR + 5] = "0000";
+[PTBR + 6] = -1;
+[PTBR + 7] = "0000";
+
+backup;
+R1 = 1;
+call MOD_2;	//calling memory manager module for get free page function
+[PTBR + 16] = R0;
+[PTBR + 17] = "0110";
+restore;
+
+backup;
+R1 = 1;
+call MOD_2;	//calling memory manager module for get free page function
+[PTBR + 18] = R0;
+[PTBR + 19] = "0110";
+restore;
+
+////////////////////////////////////////////
+
+
+count = 0;
+temp = 0;
+
+//allocate first code page
+//call get code page function
+backup;
+R1 = 5;
+R2 = currpid;
+R3 = [INODE_TABLE + 16*inodeindex + 8];
+call MOD_2;
+[PTBR + 8] = R0;
+[PTBR + 9] = "0100";
+restore;
+
+
+//invalidate rest of code pages
+[PTBR + 10] = -1;
+[PTBR + 11] = "0000";
+[PTBR + 12] = -1;
+[PTBR + 13] = "0000";
+[PTBR + 14] = -1;
+[PTBR + 15] = "0000";
+
+
+[DISK_MAP_TABLE + currpid*10 + 0] = -1; 
+[DISK_MAP_TABLE + currpid*10 + 1] = -1; 
+[DISK_MAP_TABLE + currpid*10 + 2] = -1;
+[DISK_MAP_TABLE + currpid*10 + 3] = -1;
+[DISK_MAP_TABLE + currpid*10 + 4] = [INODE_TABLE + 16*inodeindex + 8];
+[DISK_MAP_TABLE + currpid*10 + 5] = [INODE_TABLE + 16*inodeindex + 9];
+[DISK_MAP_TABLE + currpid*10 + 6] = [INODE_TABLE + 16*inodeindex + 10];
+[DISK_MAP_TABLE + currpid*10 + 7] = [INODE_TABLE + 16*inodeindex + 11];
+[DISK_MAP_TABLE + currpid*10 + 8] = -1;
+[DISK_MAP_TABLE + currpid*10 + 9] = -1;
+
+PTBR = PAGE_TABLE_BASE + 20*currpid;
+
+
+[[PTBR + 16]*512] = [[PTBR + 8]*512 + 1];	//storing etry point address to top of stack
+//reseting mode flag, changing to user stack and returning to user mode
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 9] = 0;
+SP = 8*512;
+
+ireturn;

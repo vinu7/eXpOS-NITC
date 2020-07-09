@@ -1,0 +1,216 @@
+//print "mod1";
+
+alias funcno R1;
+alias currpid R2;
+
+if(funcno==1) then  //function number corresponds to get pcb entry
+	
+//print "mod12";
+	alias counter R3;
+	counter=0;
+	while(counter<=15) do
+	//print "somet";
+		if([PROCESS_TABLE+counter*16+4]==TERMINATED) then
+			R0=counter;
+			[PROCESS_TABLE+counter*16+4]=ALLOCATED;
+			[PROCESS_TABLE+counter*16+1]=counter;
+			[PROCESS_TABLE+counter*16+14]=PAGE_TABLE_BASE+counter*20;
+			[PROCESS_TABLE+counter*16+15]=10;
+			return;
+		endif;
+		counter=counter+1;
+	endwhile;
+	R0=-1;
+if([PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+9]==8) then 
+print "noenty";
+endif;
+	return;
+endif;
+
+
+if (funcno == 2) then	//if function number corresponds to free user area page function
+	
+	alias userpageno R3;
+	userpageno = [PROCESS_TABLE + 16*currpid + 11];
+	
+	//22 stage modif.
+	alias counter R4;
+	alias semindex R5;
+	alias openindex R6;
+	counter=496;
+	while(counter<=511) do
+		if([userpageno*512+counter]==1) then 		//corres. to semaphore
+			semindex=[userpageno*512+counter+1];
+			//invoke release semaphore
+			backup;
+			R1=7;
+			R2=currpid;
+			R3=semindex;
+			call MOD_0;
+			restore;
+		endif;
+
+		if([userpageno*512+counter]==0) then 		//corres. to file
+			openindex=[userpageno*512+counter+1];
+			//invoke close function
+			backup;
+			R1=4;
+			R2=currpid;
+			R3=openindex;
+			call MOD_3;
+			restore;
+		endif;
+		
+		counter=counter+2;
+	endwhile;
+	
+	
+	//call release page function
+	backup;
+	R1 = 2;	
+	R2 = userpageno;
+	call MOD_2;	//calling memory manager module for release page function
+	restore;
+	return;
+endif;
+
+if (funcno == 3) then	//if function number corresponds to exit function
+	//call free page table function
+	backup;
+	R1 = 4;
+	R2 = currpid;
+	call MOD_1;
+	restore;
+
+
+	//call free user area page function
+	backup;
+	R1 = 2;
+	R2 = currpid;
+	call MOD_1;
+	restore;
+	alias counter R4;
+	if([PROCESS_TABLE+16*currpid+9]!=9) then
+		
+		counter=0;
+		while(counter<=15) do
+			if([PROCESS_TABLE+16*counter+4]==WAIT_PROCESS && [PROCESS_TABLE+16*counter+5]==currpid) then
+				[PROCESS_TABLE+16*counter+4]=READY;
+			endif;
+			if([PROCESS_TABLE+16*counter+2]==currpid) then
+				[PROCESS_TABLE+16*counter+2]=-1;
+			endif;
+			counter=counter+1;
+		endwhile;
+	endif;
+
+
+
+	//set state as terminated
+	[PROCESS_TABLE + 16*currpid + 4] = TERMINATED;
+	return;
+endif;
+
+if (funcno == 4) then //if function number corresponds to free page table function	
+	//invalidate library
+	[PAGE_TABLE_BASE + 20*currpid + 0] = -1;
+	[PAGE_TABLE_BASE + 20*currpid + 1] = "0000";
+	[PAGE_TABLE_BASE + 20*currpid + 2] = -1;
+	[PAGE_TABLE_BASE + 20*currpid + 3] = "0000";
+
+
+
+	//check if any heap or stack entries of disk map table are valid, if valid call release block function
+	backup;
+	alias count R6;
+	count = 4;
+	while (count < 20) do  
+		if ([PAGE_TABLE_BASE + 20*currpid + count] != -1) then
+
+			backup;
+			R1 = 2;
+			R2 = [PAGE_TABLE_BASE + 20*currpid + count];
+			call MOD_2;
+			restore;
+
+			[PAGE_TABLE_BASE + 20*currpid + count] = -1;
+			[PAGE_TABLE_BASE + 20*currpid + count + 1] = "0000";
+		endif;
+		count = count + 2;
+	endwhile;
+	restore;
+
+	backup;
+	alias temp R5;
+	alias diskmap R7;
+	diskmap = DISK_MAP_TABLE + 10*currpid;
+	temp = 0;
+	while (temp<10) do
+		if (([diskmap + temp]!= -1) && (temp==2 || temp==3 || temp==8 || temp==9)) then
+			backup;
+			R1 = 4;
+			R2 = [diskmap + temp];
+			call MOD_2;
+			restore;
+		endif;
+		[diskmap + temp] = -1;
+		temp = temp + 1; 
+	endwhile;
+	restore;
+
+	return;
+endif;
+
+if(funcno==5) then 	//kill all
+	//arg is currpid
+	alias count R3;
+	count=0;
+	//lock all processes
+	while(count<60) do
+		if([INODE_TABLE+16*count+1]!=-1) then
+			//call acquire inode
+			multipush(R1,R2,R3,R4,R5,R6,R7);
+			R1 = 4;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = count;//inode_index
+			call MOD_0;
+			multipop(R1,R2,R3,R4,R5,R6,R7);
+		endif;
+		count=count+1;
+	endwhile;
+
+	alias pid R4;
+	pid=2;
+	//kill all except init,idle,currpid
+	while(pid<MAX_PROC_NUM) do //16
+		if(pid!=currpid && [PROCESS_TABLE+16*pid+4]!=TERMINATED) then
+			//call exit process
+			backup;
+			R1=3;
+			R2=pid;
+			call MOD_1;
+			restore;
+		endif;
+		pid=pid+1;
+	endwhile;
+
+	//release inode	
+	count=0;
+	while(count<60) do
+		if([INODE_TABLE+16*count+1]!=-1) then
+			//call release inode
+			multipush(R1,R2,R3,R4,R5,R6,R7);
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = count;//inode_index
+			call MOD_0;
+			multipop(R1,R2,R3,R4,R5,R6,R7);
+		endif;
+		count=count+1;
+	endwhile;
+
+return;
+
+endif;
+
+

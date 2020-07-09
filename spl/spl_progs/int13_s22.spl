@@ -1,0 +1,107 @@
+//interrupt 13
+//semget(17) --to acquire semaphore
+//semrelease(18) --releasing semaphorw
+
+//first extract system call number from user stack(userSP-5);
+
+alias sysno R1;
+alias usersp R2;
+alias syscalladd R3;
+alias curpid R4;
+
+
+usersp=SP;
+curpid=[SYSTEM_STATUS_TABLE+1];
+syscalladd=[PTBR+2*(usersp-5)/512]*512+(usersp-5)%512;
+sysno=[syscalladd];
+
+//change to kernal stack
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+if(sysno==17) then 		//semget
+	//find free entry in per-process res table
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=17;//mode flag
+	alias counter R5;
+	alias address R6;
+	counter=496;
+	while(counter<=511) do
+		if([[PROCESS_TABLE+curpid*16+11]*512+counter]==-1) then
+			break;
+		endif;
+		counter=counter+2;
+	endwhile;
+	if(counter>511) then //no space
+		//return -1
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-1;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;	
+	endif;
+	//else
+	
+	
+	//acquire semaphore
+	multipush(R1,R2,R3,R4,R5,R6);
+	R1=6;
+	R2=curpid;
+	call MOD_0;//resorce manager module
+	multipop(R1,R2,R3,R4,R5,R6);
+	if(R0==-1) then //no free semaphores in table
+		//return -2;
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-2;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;	
+	endif;
+
+	[[PROCESS_TABLE+curpid*16+11]*512+counter]=1;//resource identifier
+	//else
+	[[PROCESS_TABLE+curpid*16+11]*512+counter+1]=R0;	//attach semaphore
+
+	//return per-process resorce table entrey index;
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=(counter-496)/2 ;//semid
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;	
+endif;
+
+if(sysno==18) then  //release semaphore
+	//arg is semid
+	alias semid R5;
+	alias address R6;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=18;
+	address=[PTBR+2*(usersp-4)/512]*512+(usersp-4)%512;
+	semid=[address];
+
+	if( (!(semid>=0 && semid<=7)) || [[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2))]!=1  ) then   //not in range or invalid
+		address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+		[address]=-1;
+		[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+		SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+		ireturn;
+	endif;
+	
+
+	//release_semaphore()
+	multipush(R1,R2,R3,R4,R5,R6);
+	R1=7;
+	R2=curpid;
+	R3=[[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2)+1)];
+	call MOD_0;	//resource manger module
+	multipop(R1,R2,R3,R4,R5,R6);
+
+	//invalidate the perprocess table entry
+	[[PROCESS_TABLE+curpid*16+11]*512+(496+(semid*2))]=-1;
+
+	address=[PTBR+2*(usersp-1)/512]*512+(usersp-1)%512;
+	[address]=0;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+

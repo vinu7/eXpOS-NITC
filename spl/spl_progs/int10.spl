@@ -1,0 +1,29 @@
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE+1]*16 + 4] = TERMINATED;
+alias currpid R0;
+alias count R1;
+alias pte  R2;
+
+currpid = [SYSTEM_STATUS_TABLE+1];
+count = 1;
+
+while(count<15) do
+	if(currpid<15) then
+		currpid = currpid + 1;
+	else
+		currpid = 1;
+	endif;
+	pte = PROCESS_TABLE + currpid*16;
+	if([pte+4]==TERMINATED) then
+		count = count + 1;
+		continue;
+	else
+		break;
+	endif;
+	count = count + 1;
+endwhile;
+
+if(count == 15) then
+	halt;
+else 
+	call MOD_5;
+endif;

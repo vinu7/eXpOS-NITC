@@ -1,0 +1,183 @@
+breakpoint;
+//set mode flag of cureent process to 5(write system call)
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16) + 9] = 5;
+
+//save user stack pointer
+alias usersp R1;
+usersp = SP;
+
+//change to kernel stack
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16) + 11]*512 - 1;
+
+//accessing the file descriptor
+
+alias filedes R2;
+filedes =[ [PTBR + 2*(usersp - 4)/512]*512+(usersp-4)%512];
+
+
+
+//finding the return address
+alias retadd R3;
+retadd = (([PTBR + 2*(usersp - 1)/512])*512) + ((usersp-1)%512);
+
+//word to be written
+alias word R4;
+word = [(([PTBR + 2*(usersp-3)/512])*512) + ((usersp - 3)%512)];
+
+alias pte R5;
+pte=PROCESS_TABLE+16*[SYSTEM_STATUS_TABLE+1];
+
+//IF TERMINAL WRITE
+if(filedes == -2) then
+
+	//call terminal write function
+	multipush (R1,R2,R3,R4,R5,R6); //saving context
+	//passing arguments
+	R1 = 3;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	R3 = word;
+	call MOD_4; //calling device manager module (module 4) for terminal write function
+	 //storing return value
+	multipop (R1,R2,R3,R4,R5,R6); //restoring context
+	[retadd]=R0;
+	
+	
+else
+	//file write
+	if(!(filedes>=0 && filedes<=7)) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	if( [ [pte+11]*512+(496+(2*filedes))]!=0) then 	//not file
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	alias openindex R6;
+	alias inodeindex R7;
+	openindex=[ [pte+11]*512+(496+(2*filedes)+1)];
+	inodeindex=[OPEN_FILE_TABLE+4*openindex+0];
+	
+	//if user is not owner and exclusive permission is set
+	if( ([pte+3]!=[INODE_TABLE+16*inodeindex+3]) &&[INODE_TABLE+16*inodeindex+4]==1) then
+		[retadd]=-3;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	//call acquire inode
+	multipush(R1,R2,R3,R4,R5,R6,R7);
+	R1 = 4;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	R3 = inodeindex;//inode_index
+	call MOD_0;
+	multipop(R1,R2,R3,R4,R5,R6,R7);
+	
+	if(R0==-1) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	//get lseek
+	alias lseek R8;
+	lseek=[OPEN_FILE_TABLE+4*openindex+2];	
+	if(lseek==MAX_FILE_SIZE) then
+		//release inode
+			backup;	
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = inodeindex;//inode index
+			call MOD_0;
+			restore;
+		
+			[retadd]=-2;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+	endif;
+	//if lseek is multiple of 512 && equal to filesize allocate new block 
+	if( lseek%512==0 && lseek==[INODE_TABLE+16*inodeindex+2]) then
+		//call get_free_block()
+		multipush(R1,R2,R3,R4,R5,R6,R7,R8);
+		R1=3;
+		R2=[SYSTEM_STATUS_TABLE+1];
+		call MOD_2;
+		multipop(R1,R2,R3,R4,R5,R6,R7,R8);
+		
+		//if no free block
+		if(R0==-1) then
+			//release inode
+			backup;	
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = inodeindex;//inode index
+			call MOD_0;
+			restore;
+		
+			[retadd]=-2;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+		endif;
+		
+		[INODE_TABLE+16*inodeindex+8+(lseek/512)]=R0;
+	endif;
+
+	alias blocknum R9;
+	alias offset R10;
+	blocknum=[INODE_TABLE+16*inodeindex+8+(lseek/512)];
+	offset=(lseek%512);
+
+	//call buffered_write();
+	backup;
+	R1=1;
+	R2=[SYSTEM_STATUS_TABLE+1];
+	R3=blocknum;
+	R5=word;	
+	R4=offset;
+	
+	call MOD_3;
+	restore;
+	
+	//if lseek equal to filesize then inc. filesize
+	if(lseek==[INODE_TABLE+16*inodeindex+2]) then 
+		[INODE_TABLE+16*inodeindex+2]=[INODE_TABLE+16*inodeindex+2]+1;
+		[ROOT_FILE+8*inodeindex+1]=[ROOT_FILE+8*inodeindex+1]+1;
+	endif;
+	
+	//inc lssek
+	[OPEN_FILE_TABLE+4*openindex+2]=[OPEN_FILE_TABLE+4*openindex+2]+1;
+	
+	//release inode
+		backup;	
+		R1 = 5;
+		R2 = [SYSTEM_STATUS_TABLE + 1];
+		R3 = inodeindex;//inode index
+		call MOD_0;
+		restore;
+	
+		[retadd]=0;
+endif;
+
+
+
+//changing back to user stack
+SP = [pte+13];
+
+//reset mode flag (0 indicates process is in user mode).
+[pte + 9] = 0;
+
+//return transfer to user program
+ireturn;
+	
+	
+	

@@ -1,0 +1,41 @@
+int main()
+{
+decl
+	int temp,pid,permission,i,filedes,word;
+	str filename;
+enddecl
+
+begin 
+	pid=1;
+	temp = exposcall("Write",-2,"Enter f_name");
+	temp = exposcall("Read",-1,filename);
+	temp = exposcall("Write",-2,"enter permsm");
+	temp = exposcall("Read",-1,permission);
+
+	temp = exposcall("Create",filename,permission);
+
+	filedes=exposcall("Open",filename);
+	write(filedes);
+	
+	i=1100;
+	while(i>0) do
+		temp=exposcall("Write",filedes,i);
+		i=i-1;
+	endwhile;
+write("write over");
+
+	temp=exposcall("Seek",filedes,0);
+write("seek done");
+	while(pid==1) do
+		temp = exposcall("Read",filedes,word);
+		if(temp!=0) then
+			break;
+		endif;
+		write(word);
+	endwhile;
+write("read done");
+	temp=exposcall("Close",filedes);
+
+	return 0;
+end
+}

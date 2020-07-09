@@ -1,0 +1,26 @@
+//switch to kernel stack
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13] = SP;
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11]*512 - 1;
+
+backup;	//store user context
+
+alias reqpid R0;
+reqpid = [TERMINAL_STATUS_TABLE + 1];	//get pid of process from terminal status table
+
+[PROCESS_TABLE + 16*reqpid + 8] = P0;
+
+//call release terminal function
+multipush (R0,R1,R2,R3);
+R1 = 9;
+R2 = reqpid;
+call MOD_0; //call resource manager module for release terminal function
+multipop (R0,R1,R2,R3);	
+
+restore;	//restoring user context
+
+//changing back to user stack
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13];
+
+
+//transfer control to user program
+ireturn;

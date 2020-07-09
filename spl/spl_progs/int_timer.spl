@@ -1,0 +1,23 @@
+//storing current sp value
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+13] = SP;
+
+//switching to kernel stack
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+//saving context to kernel stack
+backup;
+
+//changing current process state
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+4] = READY;
+
+
+//call context switch module
+call MOD_5;
+
+//restoring context
+restore;
+
+//restoring sp value
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+13];
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+9]=0;
+ireturn;

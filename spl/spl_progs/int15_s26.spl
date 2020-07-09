@@ -1,0 +1,92 @@
+
+//////SHUTDOWN SYSTEM CALL///////
+
+alias usersp R1;
+usersp = SP;
+
+//switch to kernel stack
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13] = SP;
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11]*512 - 1;
+
+
+
+//find return address
+alias retadd R2;
+retadd = [PTBR + 2*(usersp - 1)/512]*512 + (usersp-1)%512;
+
+//get the system call number
+alias syscallno R3;
+syscallno = [[PTBR + 2*(usersp - 5)/512]*512 + (usersp-5)%512];
+
+//shutdown system call
+if (syscallno == 21) then
+	[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE+1] + 9] = 21;
+	
+	//if current process is not shell or not the root, return -1
+	if([SYSTEM_STATUS_TABLE + 1] != 2 || [PROCESS_TABLE+16*[SYSTEM_STATUS_TABLE+1]+3] != 1) then
+		[retadd] = -1;
+		[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE+1] + 9] = 0;
+		SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE+1] + 13];
+		ireturn;
+	endif;
+
+	//commit(store) changes made in inode table, disk free list, root file into the disk
+	backup;
+	R1 = 1;
+	R2 = [SYSTEM_STATUS_TABLE+1];
+	R3 = 59;	// inode table page 1
+	R4 = 3;
+	call MOD_4;
+
+	R1 = 1;
+	R2 = [SYSTEM_STATUS_TABLE+1];
+	R3 = 60;	// inode table page 2
+	R4 = 4;
+	call MOD_4;
+
+	R1 = 1;
+	R2 = [SYSTEM_STATUS_TABLE+1];
+	R3 = 62;	// root file
+	R4 = 5;
+	call MOD_4;
+
+	R1 = 1;
+	R2 = [SYSTEM_STATUS_TABLE+1];
+	R3 = 61;		// disk free list
+	R4 = 2;
+	call MOD_4;
+	
+	restore;
+
+	
+	//invoke KILL ALL(5) function of mod_1 to kill all processes
+	//except IDLE,INIT,current process
+	
+	backup;
+	R1=5;
+	R2=[SYSTEM_STATUS_TABLE+1];
+	call MOD_1;
+	restore;
+
+	//if dirty bit is set write back to disk
+
+	alias count R5;
+	count=0;
+	while(count<4) do
+		if([BUFFER_TABLE+4*count+1]==1) then	//dirty bit is set
+			//write back using disk store
+			backup;
+			R1=1;
+			R2=[SYSTEM_STATUS_TABLE+1];
+			R3=71+count;	//71,72,73,74
+			R4=[BUFFER_TABLE+4*count+0];
+			call MOD_4;
+			restore;
+		endif;
+		count=count+1;
+	endwhile;
+
+
+
+	halt;
+endif;

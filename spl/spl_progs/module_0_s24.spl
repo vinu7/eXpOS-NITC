@@ -1,0 +1,139 @@
+//resource manager module
+
+alias funcno R1;
+alias currpid R2;
+
+if(funcno==1) then //acquire buffer
+	//arg are buffernumber,pid
+	alias bufnum R3;
+	while([BUFFER_TABLE+4*bufnum+2]!=-1) do
+		[PROCESS_TABLE+16*currpid+4]=WAIT_BUFFER;
+		[PROCESS_TABLE+16*currpid+5]=bufnum;
+		//call scheduler
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+
+	//loak the buffer
+	[BUFFER_TABLE+4*bufnum+2]=currpid;
+	
+	return;
+endif;
+
+if(funcno==2) then 	//release buffer
+	//args are bufnum,pid
+	alias bufnum R3;
+	if(currpid!=[BUFFER_TABLE+4*bufnum+2]) then
+		R0=-1;
+		return;
+	endif;
+	//free lock
+	[BUFFER_TABLE+4*bufnum+2]=-1;
+	alias count R4;
+	count=0;
+	while(count<16) do
+		if([PROCESS_TABLE+count*16+4]==WAIT_BUFFER &&[PROCESS_TABLE+count*16+5]==bufnum) then
+			[PROCESS_TABLE+count*16+4]=READY;
+		endif;
+		count=count+1;
+	endwhile;
+
+	R0=0;
+	return;
+endif;
+
+
+
+if (funcno == 3) then	//check if acquire disk is called
+	while ([DISK_STATUS_TABLE] == 1) do 	//while disk is acquired
+		[PROCESS_TABLE + 16*currpid + 4] = WAIT_DISK;
+		
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+
+	[DISK_STATUS_TABLE] = 1;
+	[DISK_STATUS_TABLE + 4] = currpid;
+	return;
+endif;
+
+
+if (funcno == 8) then  //check if acquire terminal function is called
+	while ([TERMINAL_STATUS_TABLE] == 1) do  //repeat until terminal if acquired
+		[PROCESS_TABLE + 16*currpid + 4] = WAIT_TERMINAL;  //change status of curr process to wait_terminal
+		
+		backup; 
+		call MOD_5;  //calling schedular module
+		restore; 
+	endwhile;
+		
+	[TERMINAL_STATUS_TABLE] = 1;  //set terminal state as acquired
+	[TERMINAL_STATUS_TABLE + 1] = currpid;  //set pid field of terminal status table as curr pid
+
+	return;
+endif;
+
+if (funcno == 9) then  //check if release terminal function is called
+	if (currpid != [TERMINAL_STATUS_TABLE + 1]) then  //check if currpid and pid of acquired process r same
+		R0 = -1; //return -1
+		return;
+	else
+		[TERMINAL_STATUS_TABLE] = 0;  //set terminal state as free
+		alias temppid R3;
+		temppid = 0;
+		while (temppid < 16) do  //update status of all waiting processes as ready
+			if ([PROCESS_TABLE + 16*temppid + 4] == WAIT_TERMINAL) then
+				[PROCESS_TABLE + 16*temppid + 4] = READY;
+			endif;
+				temppid = temppid + 1;
+		endwhile;
+		R0 = 0;
+		return;
+	endif;
+endif;
+
+if(funcno==6) then 	//acquire semaphore
+	//arg is currpid
+	alias counter R3;
+	counter=0;
+	while(counter< 32) do		//MAX_SEM_COUNT=32;
+		if([SEMAPHORE_TABLE+counter*4+1]==0) then
+			break;
+		endif;
+		counter=counter+1;
+	endwhile;
+	if(counter==32) then		//no free entry
+		R0=-1;
+		return;
+	endif;
+	//else
+	[SEMAPHORE_TABLE+counter*4+1]=1;	//process_count
+	[SEMAPHORE_TABLE+counter*4]=-1;	//locking pid
+	R0=counter;
+	return;
+endif;
+
+if(funcno==7) then 		//release semaphore
+	//args are currpid(R2) and sem table index (R3)
+	if([SEMAPHORE_TABLE +(R3)*4]==currpid) then
+		[SEMAPHORE_TABLE+(R3)*4+0]=-1;
+		alias counter R4;
+		counter=0;
+		while(counter<16) do
+			if( [PROCESS_TABLE +counter*16+4]==WAIT_SEMAPHORE && [PROCESS_TABLE +counter*16+5]==R3) then
+				[PROCESS_TABLE +counter*16+4]=READY;
+			endif;
+			counter=counter+1;
+		endwhile;
+	endif;
+
+	//dec process_count
+	[SEMAPHORE_TABLE + (R3)*4+1]=[SEMAPHORE_TABLE + (R3)*4+1]-1;
+	R0=0;
+	return;
+endif;
+
+
+	return;

@@ -1,0 +1,99 @@
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+print "exhand";
+print EIP;
+print EC;
+
+alias userSP R0;
+userSP=SP;
+
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+backup;
+
+multipush(EIP);
+
+if(EC!=0 ||userSP==PTLR*512-1 ) then
+	if(EC!=0) then
+		if(EC==1) then
+			print "illegal instruction";
+		endif;
+		if(EC==2) then
+			print "illegal memory address";
+		endif;
+		if(EC==3) then
+			print "arithmetic exception";
+		endif;
+	endif;
+	if(userSP==PTLR*512-1) then
+		print "stack full";
+	endif;
+
+	//invoke exit process
+	backup;
+	R1=3;
+	R2=[SYSTEM_STATUS_TABLE+1];
+	call MOD_1;
+	restore;
+	backup;
+	call MOD_5;
+	restore;
+
+	ireturn;
+endif;
+
+alias pagenum R1;
+
+//if page fault is due to code page
+if(EPN==4 || EPN==5 || EPN==6 ||EPN==7) then
+print "hey1";
+	if(EPN==4) then
+		pagenum=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+4];
+	endif;
+
+	if(EPN==5) then
+		pagenum=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+5];
+	endif;
+
+	if(EPN==6) then
+		pagenum=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+6];
+	endif;
+
+	if(EPN==7) then
+		pagenum=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+7];
+	endif;
+
+	backup;
+	R1=5;	//get code page
+	R2=pagenum;
+	call MOD_2;
+	[PTBR+2*EPN]=R0;
+	[PTBR+2*EPN+1]=1100;
+	restore;
+	
+endif;
+
+//if pagefault due to heap page
+if(EPN==2 || EPN==3) then
+	backup;
+	R1=1;
+	call MOD_2;
+	[PTBR+2*EPN]=R0;
+	[PTBR+2*EPN+1]=1110;
+	restore;
+endif;
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+//EIP=[SP];
+//SP=SP-1;
+multipop(EIP);
+restore;
+
+SP=userSP;
+SP=SP+1;
+[[PTBR + 2*SP/512]*512 + SP%512]=EIP;
+ireturn;
+
+
+
+

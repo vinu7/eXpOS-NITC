@@ -1,0 +1,13 @@
+module_0 :resource manager module(acquire,release)
+module_1 :process manager(get pcb entry(1),free user area page(2),exit process(3),free page table(4))
+module_2 :memory manager module(get free page(1),release page(2),Release block(4),get code page(5),
+module_3:file manager module(open(3),close(4),
+module_4: device manager module(terminal read(4),terminal write(3))
+module_5: scheduler
+module_6:
+module_7: boot module
+
+int_6: read
+int_7: write
+int_9: exec
+int_10: exit

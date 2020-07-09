@@ -1,0 +1,157 @@
+//fork
+alias pcbentry R2;	//child pid
+alias userSP R3;
+userSP=SP;
+[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+9]=8; 	//mode to sytem call 8
+
+//CHANGE TO KERNEL STACK
+
+[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+//invoke get pcb entry for pid;
+//print "fork";
+multipush(R3);
+R1=1;
+call MOD_1; //prcess manager module
+pcbentry=R0;
+multipop(R3);
+
+//print "affork";
+
+alias var R10;
+var=[PAGE_TABLE_BASE+20*[SYSTEM_STATUS_TABLE+1]+2*(userSP-1)/512]*512+(userSP-1)%512;//retun address
+
+alias pte R12;
+pte=PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16;
+
+if(pcbentry==-1) then
+	//[([(PTBR+2*(userSP-1)/512)]*512)+(userSP-1)%512]=-1;	//return value -1
+	[var]=-1;
+	[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	SP=[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+13];
+	ireturn;
+endif;
+
+//print "ok";
+//if pcbentry is available
+
+//allocate two stack pages and one user area page (get free page);
+
+backup;
+R1=1;
+call MOD_2;
+[PAGE_TABLE_BASE+20*pcbentry+16]=R0;
+[PAGE_TABLE_BASE+20*pcbentry+17]="0110";
+
+R1=1;
+call MOD_2;
+[PAGE_TABLE_BASE+20*pcbentry+18]=R0;
+[PAGE_TABLE_BASE+20*pcbentry+19]="0110";
+restore;
+
+multipush(R2,R3,R10,R12);
+R1=1;
+call MOD_2;
+multipop(R2,R3,R10,R12);
+[PROCESS_TABLE+pcbentry*16+11]=R0;		//user area page
+
+//print "ok2";
+//initialaize process table
+[PROCESS_TABLE+pcbentry*16+3]=[pte+3];//USERID
+[PROCESS_TABLE+pcbentry*16+6]=[pte+6];//swap flag
+[PROCESS_TABLE+pcbentry*16+10]=[pte+10];//user area swap
+[PROCESS_TABLE+pcbentry*16+7]=[pte+7];//inode index
+[PROCESS_TABLE+pcbentry*16+13]=[pte+13];//uptr
+
+[PROCESS_TABLE+pcbentry*16+9]=0;	//mode
+[PROCESS_TABLE+pcbentry*16+12]=0;	//kptr
+[PROCESS_TABLE+pcbentry*16+0]=0;		//tick
+[PROCESS_TABLE+pcbentry*16+2]=[SYSTEM_STATUS_TABLE+1];	//ppid
+[PROCESS_TABLE+pcbentry*16+1]=pcbentry;
+[PROCESS_TABLE+pcbentry*16+4]=CREATED;	//status
+
+//print "ok3";
+
+//per process resorce table
+//multipush(R5);
+alias counter R5;
+alias semindex R8;
+alias openindex R9;
+counter=496;
+while(counter<=511) do
+	[[PROCESS_TABLE+pcbentry*16+11]*512+counter]=[[pte+11]*512+counter];
+	[[PROCESS_TABLE+pcbentry*16+11]*512+counter+1]=[[pte+11]*512+counter+1];
+	if([[pte+11]*512+counter]==1) then //for semaphore
+		semindex=[[pte+11]*512+counter+1];
+		[SEMAPHORE_TABLE+semindex*4+1]=[SEMAPHORE_TABLE+semindex*4+1]+1;
+	endif;
+	if([[pte+11]*512+counter]==0) then //for file
+		openindex=[[pte+11]*512+counter+1];
+		[OPEN_FILE_TABLE+openindex*4+1]=[OPEN_FILE_TABLE+openindex*4+1]+1;
+	endif;
+	
+	
+	counter=counter+2;
+endwhile;
+//multipop(R5);
+
+//print "ok4";
+
+//per-process disk map table
+
+counter=0;
+while(counter<=9) do
+	[DISK_MAP_TABLE+pcbentry*10+counter]=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+counter];
+	counter=counter+1;
+endwhile;
+
+//print "ok5";
+
+//initialize pagetable of the child process
+		//copy heap,code,library pages of parent table
+
+counter=0;
+while(counter<=15) do
+	[PAGE_TABLE_BASE+20*pcbentry+counter]=[PAGE_TABLE_BASE+20*[SYSTEM_STATUS_TABLE+1]+counter];
+	[PAGE_TABLE_BASE+20*pcbentry+counter+1]=[PAGE_TABLE_BASE+20*[SYSTEM_STATUS_TABLE+1]+counter+1];
+	if([PAGE_TABLE_BASE+20*pcbentry+counter]!=-1) then
+		[MEMORY_FREE_LIST+[PAGE_TABLE_BASE+20*pcbentry+counter]]=[MEMORY_FREE_LIST+[PAGE_TABLE_BASE+20*pcbentry+counter]]+1;
+	endif;
+	counter=counter+2;
+endwhile;
+
+//print "ok6";
+
+//copy content of user stack of parent to user stack child process
+alias variable R8;
+variable=8;
+while(variable<=9) do
+counter=0;
+while(counter<=511) do
+	[[PAGE_TABLE_BASE+20*pcbentry+2*variable]*512+counter]=[[PAGE_TABLE_BASE+20*[SYSTEM_STATUS_TABLE+1]+2*variable]*512+counter];
+	counter=counter+1;
+endwhile;
+variable=variable+1;
+endwhile;
+
+//print "ok7";
+
+//store value in BP register on top of the kenel stack of child process
+[[PROCESS_TABLE+16*pcbentry+11]*512]=BP;
+//multipush(BP);
+
+//print "ok8";
+
+//return values
+//[[PAGE_TABLE_BASE+20*[SYSTEM_STATUS_TABLE+1]+2*(userSP-1)/512]*512+(userSP-1)%512]=pcbentry; //return value to paren
+[var]=pcbentry;
+[[PAGE_TABLE_BASE+20*pcbentry+2*(userSP-1)/512]*512+(userSP-1)%512]=0;		//return value to child
+
+[pte+9]=0;
+SP=[PROCESS_TABLE +[SYSTEM_STATUS_TABLE+1]*16+13];
+//print "ok9";
+
+ireturn;
+
+

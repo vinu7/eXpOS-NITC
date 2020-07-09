@@ -1,0 +1,213 @@
+//Newusr,Remusr,Setpwd,Getuname and Getuid (22,23,24,25,26)
+
+alias usersp R1;
+alias pte R2;
+
+usersp=SP;
+pte=PROCESS_TABLE+16*[SYSTEM_STATUS_TABLE+1];
+
+//kernel mode
+[pte+13]=SP;
+SP=[pte+11]*512-1;
+
+alias currpid R3;
+alias retadd R4;
+alias sysno R5;
+alias username R6;
+alias pwd R7;
+
+sysno =[ [PTBR + 2*(usersp - 5)/512]*512 + (usersp-5)%512];
+username = [[PTBR + 2*(usersp - 4)/512]*512 + (usersp-4)%512];
+pwd = [[PTBR + 2*(usersp - 3)/512]*512 + (usersp-3)%512];
+
+[pte+9]=sysno;//mode flag
+
+retadd = [PTBR + 2*(usersp - 1)/512]*512 + (usersp-1)%512;
+
+currpid=[SYSTEM_STATUS_TABLE+1];
+
+if(sysno==22) then
+	if(currpid!=2 || [pte+3]!=1) then	//not roor or not shell process
+		[retadd]=-2;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	alias count R8;
+	count=2;
+	while(count<16) do
+		if([USER_TABLE+2*count]==-1) then
+			break;
+		endif;
+		count=count+1;
+	endwhile;
+
+	if(count==16) then
+		[retadd]=-3;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	[USER_TABLE+2*count]=username;
+	encrypt pwd;
+	[USER_TABLE+2*count+1]=pwd;
+
+
+	[pte+9]=0;
+	[retadd]=0;
+	SP=[pte+13];
+	ireturn;
+endif;
+
+if(sysno==23) then	//remuser
+	
+	if(currpid!=2 || [pte+3]!=1) then	//not roor or not shell process
+		[retadd]=-2;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	if(username=="root" || username=="kernel") then
+		[retadd]=-2;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+
+	alias count R8;
+	count=2;
+	while(count<16) do
+		if([USER_TABLE+2*count]==username) then
+			break;
+		endif;
+		count=count+1;
+	endwhile;
+
+	if(count==16) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	//loop through root file
+	alias rindex R10;
+	rindex=0;
+	while(rindex<MAX_FILE_NUM) do
+		if([ROOT_FILE+8*rindex+3]==username) then
+			if([ROOT_FILE+8*rindex+0]!=-1) then
+				//file present so cant delete
+				[retadd]=-3;
+				SP=[pte+13];
+				[pte+9]=0;
+				ireturn;
+			endif;
+		endif;
+		rindex=rindex+1;
+	endwhile;
+
+	[USER_TABLE+2*count]=-1;
+	[USER_TABLE+2*count+1]=-1;
+
+	[pte+9]=0;
+	[retadd]=0;
+	SP=[pte+13];
+	ireturn;
+endif;
+
+
+if(sysno==24) then	//setpwd
+		
+	if(currpid!=2 ) then	//not shell process
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	alias count R9;
+	count=0;
+	while(count<=15) do
+		if([USER_TABLE+count*2]==username) then
+			break;
+		endif;
+		count=count+1;
+	endwhile;
+
+	if(count==16) then
+		[retadd]=-2;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	if(count!=[pte+3]) then  //userid's are not equal
+		if([pte+3]!=1) then
+			[retadd]=-1;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+		endif;
+	endif;
+	
+	encrypt pwd;
+	[USER_TABLE+2*count+1]=pwd;
+
+	[pte+9]=0;
+	[retadd]=0;
+	SP=[pte+13];
+	ireturn;
+endif;
+
+if(sysno==25) then	//getuname
+	alias userid R9;
+	userid=username;
+
+	if(userid<0 || userid >15) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	if([USER_TABLE+2*userid]==-1) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	alias uname R10;
+	uname=[USER_TABLE+2*userid];
+
+	[pte+9]=0;
+	[retadd]=uname;
+	SP=[pte+13];
+	ireturn;
+endif;
+
+if(sysno==26) then	//get uid
+	alias count R9;
+	count=0;
+	while(count<16) do
+		if([USER_TABLE+2*count]==username) then
+			[retadd]=count;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+		endif;
+		count=count+1;
+	endwhile;
+
+	//if(count==16) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+endif;
+
+

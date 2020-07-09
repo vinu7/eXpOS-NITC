@@ -1,0 +1,9 @@
+alias c R0;
+c=0;
+while(c<=10) do
+	if(c%2!=0) then
+		breakpoint;
+		print c;
+	endif;
+	c=c+1;
+endwhile;

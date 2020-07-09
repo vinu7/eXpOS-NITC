@@ -1,0 +1,44 @@
+decl
+	int isprime(int num);
+enddecl
+
+int isprime(int num)
+{
+decl
+	int temp,i,j,flag;
+enddecl
+
+begin
+	flag=1;
+	temp=2;
+	while(temp<num) do
+		j=num%temp;
+		if(j==0) then
+			flag=0;
+			break;
+		endif;
+		temp = temp + 1;
+	endwhile;
+	return flag;
+end
+}
+
+int main()
+{
+decl
+	int temp,num,i;
+enddecl
+
+begin
+	num=2;
+	while(num<100) do
+		i=isprime(num);
+		if(i==1) then
+			temp=exposcall("Write",-2,num);
+		endif;
+		num = num + 1;
+	endwhile;
+	return 0;
+end
+}
+

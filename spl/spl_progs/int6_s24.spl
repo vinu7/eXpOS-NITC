@@ -1,0 +1,161 @@
+//set mode flag of current process to 7(read system call)
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 9] = 7;
+
+
+//save user stack pointer
+alias usersp R1;
+usersp = SP;
+
+//switch to kernel stack
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13] = SP;
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 11]*512 - 1;
+
+//retreiving the file descriptor
+alias phyaddress R2;
+phyaddress = [PTBR + 2*(usersp - 4)/512]*512+(usersp-4)%512;
+alias filedes R3;
+filedes = [phyaddress];
+
+//finding the return address
+alias retadd R4;
+retadd = (([PTBR + 2*(usersp - 1)/512])*512) + ((usersp-1)%512);
+
+alias pte R5;
+pte=PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16;
+
+if (filedes != -1) then	//not terminal_read
+	//if filedes is invalid return -1
+	if(!(filedes>=0 && filedes<=7)) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+
+	if([[pte+11]*512+496+(2*filedes)]!=0) then 	//not file
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	alias openindex R6;
+	alias inodeindex R7;
+	openindex=[[pte+11]*512+(496+(2*filedes)+1)];
+	inodeindex=[OPEN_FILE_TABLE+4*openindex+0];
+
+	//call acquire inode
+	multipush(R1,R2,R3,R4,R5,R6,R7);
+	R1 = 4;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	R3 = inodeindex;//inode_index
+	call MOD_0;
+	multipop(R1,R2,R3,R4,R5,R6,R7);
+	
+	if(R0==-1) then
+		[retadd]=-1;
+		[pte+9]=0;
+		SP=[pte+13];
+		ireturn;
+	endif;
+	
+	alias lseek R8;
+	lseek=[OPEN_FILE_TABLE+4*openindex+2];
+	
+	alias word_add R9;
+ 	word_add = [(([PTBR + 2*(usersp-3)/512])*512) + ((usersp - 3)%512)   ];
+	alias physicaladd R10;
+	physicaladd=[PTBR+2*((word_add)/512)]*512+(word_add % 512);	
+	
+
+	//if file is root
+	if([OPEN_FILE_TABLE+4*openindex+0]==INODE_ROOT || [OPEN_FILE_TABLE+4*openindex+0]==0) then
+		if(lseek==480) then
+			//release inode
+			backup;	
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = inodeindex;//inode index
+			call MOD_0;
+			restore;
+		
+			[retadd]=-2;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+		endif;
+		//else read from root file at lseek
+
+		[physicaladd]=[ROOT_FILE+lseek];
+		[OPEN_FILE_TABLE+4*openindex+2]= [OPEN_FILE_TABLE+4*openindex+2]+1;	//inc lseek
+	
+	else	//not root
+		if(lseek==[INODE_TABLE+16*inodeindex+2]) then	//size of fil
+			//release inode
+			backup;	
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = inodeindex;//inode index
+			call MOD_0;
+			restore;
+		//print "sizef";
+			[retadd]=-2;
+			[pte+9]=0;
+			SP=[pte+13];
+			ireturn;
+		endif;
+		//find disk block num and position in block
+		alias blocknum R11;
+		alias position R12;
+		blocknum=[INODE_TABLE+16*inodeindex+8+(lseek/512)];
+		position=(lseek%512);
+		
+		//call buffered_read();
+		backup;
+		R1=2;
+		R2=[SYSTEM_STATUS_TABLE+1];
+		R3=blocknum;
+		R4=position;
+		R5=physicaladd;
+		call MOD_3;
+		restore;
+
+		[OPEN_FILE_TABLE+4*openindex+2]=[OPEN_FILE_TABLE+4*openindex+2]+1;//inc lseek
+	endif;
+			
+			//release inode
+			backup;	
+			R1 = 5;
+			R2 = [SYSTEM_STATUS_TABLE + 1];
+			R3 = inodeindex;//inode index
+			call MOD_0;
+			restore;
+		[retadd] = 0;	//success
+
+
+
+
+
+else 
+	alias word_add R6;
+	word_add = [(([PTBR + 2*(usersp-3)/512])*512) + ((usersp - 3)%512)];
+	
+	//call read terminal function
+	multipush (R0,R1,R2,R3,R4,R5,R6);
+	R1 = 4;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	R3 = word_add;
+	call MOD_4;	//calling device manager module(module 4)
+	multipop (R0,R1,R2,R3,R4,R5,R6);	
+	
+	[retadd] = 0;	//success
+endif;
+
+//reset mode flag (0 indicates process is in user mode)
+[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 9] = 0;
+
+//changing back to user stack
+SP = [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 13];
+
+//transfer control to user program
+ireturn;	

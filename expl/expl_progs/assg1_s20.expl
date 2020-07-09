@@ -1,0 +1,26 @@
+int main() 
+{
+decl
+	int temp;
+	str file,files;
+enddecl
+begin
+	write("fork");
+	temp=exposcall("Fork");
+	if(temp==0) then
+		write ("child");
+		temp = exposcall("Read",-1,file);
+		temp = exposcall("Exec",file);
+	endif;
+	if(temp!=0) then
+		write ("parent");
+		temp = exposcall("Read",-1,files);
+		write("mid");
+		temp = exposcall("Exec",files);
+		write("aft");
+	endif;
+	
+	write ("affork");
+	return 0;
+end
+}

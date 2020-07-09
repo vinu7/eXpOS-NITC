@@ -1,0 +1,82 @@
+//login(27) system call
+
+//args are user name,password
+
+alias usersp R1;
+alias pte R2;
+
+usersp=SP;
+pte=PROCESS_TABLE+16*[SYSTEM_STATUS_TABLE+1];
+
+//kernel mode
+[pte+13]=SP;
+SP=[pte+11]*512-1;
+[pte+9]=27;//mode flag
+
+alias uname R3;
+alias pwd R4;
+alias currpid R5;
+alias retadd R6;
+
+retadd = [PTBR + 2*(usersp - 1)/512]*512 + (usersp-1)%512;
+
+currpid=[SYSTEM_STATUS_TABLE+1];
+uname=[[PTBR+2*(usersp-4)/512]*512+(usersp-4)%512];
+pwd=[[PTBR+2*(usersp-3)/512]*512+(usersp-3)%512];
+
+if(currpid!=1) then	//not login 
+	[retadd]=-2;
+	SP=[pte+13];
+	[pte+9]=0;
+	ireturn;
+endif;
+
+alias count R7;
+count=0;
+while(count<16) do
+	if([USER_TABLE+2*count]==uname) then
+		break;
+	endif;
+	count=count+1;
+endwhile;
+
+if(count==16) then	//no entry
+	[retadd]=-1;
+	SP=[pte+13];
+	[pte+9]=0;
+	ireturn;
+endif;
+
+alias userid R8;
+alias encrypted R9;
+
+userid=count;
+encrypted=pwd;
+encrypt encrypted;
+
+if([USER_TABLE+userid*2+1]!=encrypted) then
+	[retadd]=-1;
+	SP=[pte+13];
+	[pte+9]=0;
+	ireturn;
+endif;
+
+//set state and userid of shell process
+[PROCESS_TABLE+16*2+4]=CREATED;
+[PROCESS_TABLE+16*2+3]=userid;
+
+[PROCESS_TABLE+16*currpid+4]=WAIT_PROCESS;
+[PROCESS_TABLE+16*currpid+5]=2;//shell
+
+[SYSTEM_STATUS_TABLE+0]=userid;  //current_User_id
+
+backup;
+call MOD_5;
+restore;
+
+[pte+9]=0;
+SP=[pte+13];
+ireturn;
+
+
+	

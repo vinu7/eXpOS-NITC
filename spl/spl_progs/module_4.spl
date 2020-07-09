@@ -1,0 +1,118 @@
+alias funcno R1;
+alias currpid R2;
+
+if (funcno == 1) then	//disk store
+	alias pageno R3;
+	alias blockno R4;
+
+	//call acquire disk func
+	backup;
+	R1 = 3;
+	R2 = currpid;
+	call MOD_0;
+	restore;
+
+	//update disk status table
+	[DISK_STATUS_TABLE] = 1;	//status
+	[DISK_STATUS_TABLE + 1] = 1;	//load/store bit
+	[DISK_STATUS_TABLE + 2] = pageno;
+	[DISK_STATUS_TABLE + 3] = blockno;
+	[DISK_STATUS_TABLE + 4] = currpid;
+
+
+	store(pageno,blockno);
+
+	[PROCESS_TABLE + 16*currpid + 4] = WAIT_DISK;
+
+	backup;
+	call MOD_5;
+	restore;
+
+	return;
+endif;
+
+
+
+if (funcno == 2) then	//check if called function is disk load function
+	alias pageno R3;
+	alias blockno R4;
+	//call acquire disk func
+	backup;
+	R1 = 3;
+	R2 = currpid;
+	call MOD_0;
+	restore;
+//print("in dload");
+//print(pageno);
+//print(blockno);
+
+	[DISK_STATUS_TABLE] = 1;
+	[DISK_STATUS_TABLE + 1] = 0;
+	[DISK_STATUS_TABLE + 2] = pageno;
+	[DISK_STATUS_TABLE + 3] = blockno;
+	[DISK_STATUS_TABLE + 4] = currpid;
+
+	load(pageno,blockno);
+
+	[PROCESS_TABLE + 16*currpid + 4] = WAIT_DISK;
+
+	backup;
+	call MOD_5;
+	restore;
+	return;
+endif;
+
+
+
+
+if (funcno == 3) then	//check if called function is terminal write function 
+
+	//call acquire terminal function
+	backup; //saving context	
+	R1 = 8;
+	R2 = currpid;
+	call MOD_0; //call resource manager module for acquire terminal function(module 0)
+	restore;
+
+
+	print R3; //printing the word
+	
+
+	//call release terminal function
+	backup;
+	R1 = 9;
+	R2 = currpid; 
+	call MOD_0; //call resource manager module for release terminal function(module 0)
+	restore;
+
+	return;
+	
+else
+	if (funcno == 4) then	//check if called function is terminal read function
+				
+		//call acquire terminal funcition
+		backup;
+		R1 = 8;   
+		R2 = currpid;
+		call MOD_0; //call resource manager module for acquire terminal function
+		restore;
+		
+
+		read;	//read from the terminal
+		[PROCESS_TABLE + 16*currpid + 4] = WAIT_TERMINAL;	//set state to wait_terminal
+		
+		backup;
+		call MOD_5;	//invoking the scheduler	
+		restore;
+
+		alias word_add R5;
+		word_add =(([PTBR + 2*(R3)/512])*512) + ((R3)%512);
+
+		[word_add] = [PROCESS_TABLE + 16*currpid + 8];	//saving the read value from input buffer
+		
+		return;
+	else
+		return;
+	endif;
+endif;
+	return;
